@@ -1,0 +1,189 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lenscribe OCR Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="orb orb-left" aria-hidden="true"></div>
+    <div class="orb orb-right" aria-hidden="true"></div>
+
+    <main class="app-shell">
+      <header class="hero">
+        <p class="eyebrow">Browser OCR</p>
+        <h1>Lenscribe OCR Studio</h1>
+        <p class="subhead">
+          Extract text from an uploaded image or capture directly from your
+          camera.
+        </p>
+      </header>
+
+      <section class="panel controls">
+        <div class="control-row">
+          <label for="fileInput">Upload Images</label>
+          <input id="fileInput" type="file" accept="image/*" multiple />
+        </div>
+
+        <div
+          id="dropZone"
+          class="drop-zone"
+          role="button"
+          tabindex="0"
+          aria-label="Drop an image here"
+        >
+          <p>Drag and drop image(s) here</p>
+          <span>PNG, JPG, WEBP, TIFF supported</span>
+        </div>
+
+        <div class="control-row split-three">
+          <div>
+            <label for="languageDropdownBtn">OCR Language(s)</label>
+            <div id="languageMultiSelect" class="language-multiselect">
+              <button
+                id="languageDropdownBtn"
+                class="language-dropdown-trigger"
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded="false"
+              >
+                English
+              </button>
+              <div id="languageDropdownMenu" class="language-dropdown-menu" hidden>
+                <label class="language-option"><input type="checkbox" value="eng" checked />English</label>
+                <label class="language-option"><input type="checkbox" value="ell" />Greek</label>
+                <label class="language-option"><input type="checkbox" value="spa" />Spanish</label>
+                <label class="language-option"><input type="checkbox" value="fra" />French</label>
+                <label class="language-option"><input type="checkbox" value="deu" />German</label>
+                <label class="language-option"><input type="checkbox" value="ita" />Italian</label>
+                <label class="language-option"><input type="checkbox" value="por" />Portuguese</label>
+                <label class="language-option"><input type="checkbox" value="nld" />Dutch</label>
+                <label class="language-option"><input type="checkbox" value="jpn" />Japanese</label>
+              </div>
+            </div>
+            <p class="field-hint">Click and check one or more languages.</p>
+          </div>
+          <div>
+            <label for="psmSelect">Text Layout Mode</label>
+            <select id="psmSelect">
+              <option value="6" selected>Block of text</option>
+              <option value="3">Automatic</option>
+              <option value="7">Single line</option>
+              <option value="8">Single word</option>
+              <option value="11">Sparse text</option>
+            </select>
+          </div>
+          <div>
+            <label for="readingOrderSelect">Reading Order</label>
+            <select id="readingOrderSelect">
+              <!-- <option value="auto" selected>Auto detect</option> -->
+              <option value="single">Single column/page</option>
+              <option value="two">Two columns (left to right)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="text-options">
+          <label class="checkbox-option" for="cleanupTextToggle">
+            <input id="cleanupTextToggle" type="checkbox" checked />
+            <span
+              >Auto-cleanup line wraps (e.g., join `Tru-` + newline + `th`, keep
+              only paragraph newlines)</span
+            >
+          </label>
+        </div>
+
+        <div class="camera-controls">
+          <button id="startCameraBtn" type="button">Start Camera</button>
+          <button id="captureBtn" type="button" disabled>Capture</button>
+          <button id="stopCameraBtn" type="button" disabled>Stop Camera</button>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <article class="panel preview-panel">
+          <div class="preview-head">
+            <h2>Image Preview</h2>
+            <p id="imageCounter" class="image-counter" hidden>0 / 0</p>
+          </div>
+          <div class="preview-wrap">
+            <button
+              id="prevImageBtn"
+              class="preview-nav prev"
+              type="button"
+              aria-label="Previous image"
+              hidden
+            >
+              &#10094;
+            </button>
+            <button
+              id="nextImageBtn"
+              class="preview-nav next"
+              type="button"
+              aria-label="Next image"
+              hidden
+            >
+              &#10095;
+            </button>
+            <img id="imagePreview" alt="Selected preview" hidden />
+            <video id="cameraFeed" autoplay playsinline muted hidden></video>
+            <canvas id="captureCanvas" hidden></canvas>
+            <div id="previewPlaceholder" class="placeholder">
+              No image selected yet
+            </div>
+          </div>
+        </article>
+
+        <article class="panel result-panel">
+          <div class="result-head">
+            <h2>Transcribed Text</h2>
+            <div class="result-head-actions">
+              <button id="transcribeBtn" type="button" disabled>
+                Transcribe
+              </button>
+              <button id="transcribeAllBtn" type="button" disabled>
+                Transcribe All
+              </button>
+            </div>
+          </div>
+
+          <div class="status-wrap">
+            <p id="statusText">Waiting for an image...</p>
+            <div class="progress-track" aria-label="OCR progress">
+              <div id="progressBar" class="progress-bar"></div>
+            </div>
+            <p id="confidenceText" class="confidence">Confidence: --</p>
+          </div>
+
+          <textarea
+            id="resultText"
+            placeholder="Recognized text will appear here..."
+          ></textarea>
+
+          <div class="result-actions">
+            <button id="copyBtn" type="button" disabled>Copy</button>
+            <button id="copyAllBtn" type="button" disabled hidden>Copy All</button>
+            <button id="downloadBtn" type="button" disabled>
+              Download .txt
+            </button>
+            <button id="downloadAllBtn" type="button" disabled hidden>
+              Download All .txt
+            </button>
+            <button id="clearBtn" type="button">Clear</button>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,882 @@
+﻿const fileInput = document.getElementById("fileInput");
+const dropZone = document.getElementById("dropZone");
+const languageMultiSelect = document.getElementById("languageMultiSelect");
+const languageDropdownBtn = document.getElementById("languageDropdownBtn");
+const languageDropdownMenu = document.getElementById("languageDropdownMenu");
+const psmSelect = document.getElementById("psmSelect");
+const readingOrderSelect = document.getElementById("readingOrderSelect");
+const cleanupTextToggle = document.getElementById("cleanupTextToggle");
+
+const startCameraBtn = document.getElementById("startCameraBtn");
+const captureBtn = document.getElementById("captureBtn");
+const stopCameraBtn = document.getElementById("stopCameraBtn");
+const transcribeBtn = document.getElementById("transcribeBtn");
+const transcribeAllBtn = document.getElementById("transcribeAllBtn");
+const copyBtn = document.getElementById("copyBtn");
+const copyAllBtn = document.getElementById("copyAllBtn");
+const downloadBtn = document.getElementById("downloadBtn");
+const downloadAllBtn = document.getElementById("downloadAllBtn");
+const clearBtn = document.getElementById("clearBtn");
+const prevImageBtn = document.getElementById("prevImageBtn");
+const nextImageBtn = document.getElementById("nextImageBtn");
+const imageCounter = document.getElementById("imageCounter");
+
+const imagePreview = document.getElementById("imagePreview");
+const cameraFeed = document.getElementById("cameraFeed");
+const captureCanvas = document.getElementById("captureCanvas");
+const previewPlaceholder = document.getElementById("previewPlaceholder");
+
+const statusText = document.getElementById("statusText");
+const confidenceText = document.getElementById("confidenceText");
+const progressBar = document.getElementById("progressBar");
+const resultText = document.getElementById("resultText");
+
+let activeStream = null;
+let isCameraPreviewActive = false;
+let isTranscribing = false;
+let currentImageIndex = -1;
+let imageIdSeed = 1;
+const images = [];
+const languageCheckboxes = Array.from(
+  document.querySelectorAll("#languageDropdownMenu input[type='checkbox']")
+);
+
+function setStatus(text) {
+  statusText.textContent = text;
+}
+
+function setProgress(value) {
+  const normalized = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+  progressBar.style.width = `${Math.round(normalized * 100)}%`;
+}
+
+function setConfidence(value) {
+  confidenceText.textContent = Number.isFinite(value)
+    ? `Confidence: ${value.toFixed(1)}%`
+    : "Confidence: --";
+}
+
+function setResultActionsEnabled(enabled) {
+  copyBtn.disabled = !enabled;
+  downloadBtn.disabled = !enabled;
+}
+
+function hasAnyTranscribedText() {
+  return images.some((image) => image.hasOcr && formatDisplayText(image.rawOcrText || "").trim());
+}
+
+function updateBulkActionsState() {
+  const hasMultiple = images.length > 1;
+  copyAllBtn.hidden = !hasMultiple;
+  downloadAllBtn.hidden = !hasMultiple;
+
+  const enabled = hasMultiple && hasAnyTranscribedText();
+  copyAllBtn.disabled = !enabled;
+  downloadAllBtn.disabled = !enabled;
+}
+
+function getCombinedTranscriptionText() {
+  const parts = [];
+
+  for (let i = 0; i < images.length; i += 1) {
+    const image = images[i];
+    if (!image.hasOcr) {
+      continue;
+    }
+
+    const body = formatDisplayText(image.rawOcrText || image.ocrText || "").trim();
+    if (!body) {
+      continue;
+    }
+
+    parts.push(`--- Image ${i + 1} ---\n${body}`);
+  }
+
+  return parts.join("\n\n");
+}
+
+function cleanExtractedText(text) {
+  let output = (text || "").replace(/\r\n?/g, "\n");
+
+  // Join words split by line-wrap hyphenation, e.g. "Chris-\ntian" -> "Christian".
+  output = output.replace(/([A-Za-z])(?:-|\u00AD)\s*\n\s*([A-Za-z])/g, "$1$2");
+
+  // Normalize paragraph separators to a single blank line.
+  output = output.replace(/\n[ \t]*\n+/g, "\n\n");
+
+  // Remaining single newlines are treated as line wraps within a paragraph.
+  output = output.replace(/([^\n])\n(?!\n)/g, "$1 ");
+
+  // Collapse extra spacing introduced by OCR line wraps.
+  output = output.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+\n/g, "\n");
+
+  return output.trim();
+}
+
+function formatDisplayText(rawText) {
+  const trimmed = (rawText || "").trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  if (!cleanupTextToggle?.checked) {
+    return trimmed;
+  }
+
+  return cleanExtractedText(trimmed);
+}
+
+function getCurrentImage() {
+  if (currentImageIndex < 0 || currentImageIndex >= images.length) {
+    return null;
+  }
+
+  return images[currentImageIndex];
+}
+
+function getSelectedLanguageCode() {
+  const selected = languageCheckboxes
+    .filter((checkbox) => checkbox.checked)
+    .map((checkbox) => checkbox.value)
+    .filter(Boolean);
+
+  return selected.length ? selected.join("+") : "eng";
+}
+
+function closeLanguageDropdown() {
+  languageDropdownMenu.hidden = true;
+  languageDropdownBtn.setAttribute("aria-expanded", "false");
+}
+
+function openLanguageDropdown() {
+  languageDropdownMenu.hidden = false;
+  languageDropdownBtn.setAttribute("aria-expanded", "true");
+}
+
+function updateLanguageDropdownLabel() {
+  const selectedLabels = languageCheckboxes
+    .filter((checkbox) => checkbox.checked)
+    .map((checkbox) => checkbox.parentElement?.textContent?.trim())
+    .filter(Boolean);
+
+  if (!selectedLabels.length) {
+    languageDropdownBtn.textContent = "English";
+    return;
+  }
+
+  if (selectedLabels.length === 1) {
+    languageDropdownBtn.textContent = selectedLabels[0];
+    return;
+  }
+
+  languageDropdownBtn.textContent = `${selectedLabels[0]} +${selectedLabels.length - 1}`;
+}
+
+function updateTranscribeState() {
+  const hasCurrent = Boolean(getCurrentImage());
+  const hasAnyImages = images.length > 0;
+  transcribeBtn.disabled = isTranscribing || !hasCurrent;
+  transcribeAllBtn.disabled = isTranscribing || !hasAnyImages;
+}
+
+function updatePreviewControls() {
+  if (isCameraPreviewActive && activeStream) {
+    prevImageBtn.hidden = true;
+    nextImageBtn.hidden = true;
+
+    if (images.length > 0) {
+      imageCounter.hidden = false;
+      imageCounter.textContent = `Live camera | ${images.length} saved`;
+    } else {
+      imageCounter.hidden = true;
+      imageCounter.textContent = "";
+    }
+    return;
+  }
+
+  const hasImages = images.length > 0;
+  const hasMultiple = images.length > 1;
+
+  imageCounter.hidden = !hasImages;
+  imageCounter.textContent = hasImages ? `${currentImageIndex + 1} / ${images.length}` : "";
+
+  prevImageBtn.hidden = !hasMultiple;
+  nextImageBtn.hidden = !hasMultiple;
+}
+
+function syncResultFromCurrentImage() {
+  const current = getCurrentImage();
+
+  if (!current || !current.hasOcr) {
+    resultText.value = "";
+    setConfidence(NaN);
+    setResultActionsEnabled(false);
+    setProgress(0);
+    updateBulkActionsState();
+    return;
+  }
+
+  const sourceText = current.rawOcrText || current.ocrText;
+  const displayText = formatDisplayText(sourceText);
+  current.ocrText = displayText;
+  resultText.value = displayText;
+  setConfidence(current.confidence);
+  setResultActionsEnabled(Boolean(displayText.trim()));
+  setProgress(1);
+  updateBulkActionsState();
+}
+
+function refreshPreview() {
+  const current = getCurrentImage();
+
+  if (isCameraPreviewActive && activeStream) {
+    cameraFeed.hidden = false;
+    imagePreview.hidden = true;
+    previewPlaceholder.hidden = true;
+  } else if (current) {
+    imagePreview.src = current.dataUrl;
+    imagePreview.hidden = false;
+    cameraFeed.hidden = true;
+    previewPlaceholder.hidden = true;
+  } else {
+    imagePreview.hidden = true;
+    cameraFeed.hidden = true;
+    previewPlaceholder.hidden = false;
+  }
+
+  updatePreviewControls();
+  updateTranscribeState();
+  updateBulkActionsState();
+}
+
+function setCurrentImageByIndex(index) {
+  if (!images.length) {
+    currentImageIndex = -1;
+    syncResultFromCurrentImage();
+    refreshPreview();
+    return;
+  }
+
+  const clamped = Math.max(0, Math.min(index, images.length - 1));
+  currentImageIndex = clamped;
+  syncResultFromCurrentImage();
+  refreshPreview();
+}
+
+function createImageRecord(dataUrl) {
+  return {
+    id: imageIdSeed,
+    dataUrl,
+    rawOcrText: "",
+    ocrText: "",
+    confidence: NaN,
+    hasOcr: false,
+    regionCount: 0
+  };
+}
+
+function loadImageElement(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Image load failed"));
+    img.src = src;
+  });
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Failed to read image file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function toCanvasDataUrlFromRegion(img, region) {
+  const canvas = document.createElement("canvas");
+  canvas.width = region.width;
+  canvas.height = region.height;
+
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(
+    img,
+    region.x,
+    region.y,
+    region.width,
+    region.height,
+    0,
+    0,
+    region.width,
+    region.height
+  );
+
+  return canvas.toDataURL("image/png");
+}
+
+function detectColumnSplitX(img) {
+  const sampleWidth = Math.min(1600, img.naturalWidth || img.width);
+  const sampleHeight = Math.min(2200, img.naturalHeight || img.height);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = sampleWidth;
+  canvas.height = sampleHeight;
+
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, sampleWidth, sampleHeight);
+  const pixels = ctx.getImageData(0, 0, sampleWidth, sampleHeight).data;
+
+  const darknessByX = new Float64Array(sampleWidth);
+  for (let y = 0; y < sampleHeight; y += 1) {
+    const rowOffset = y * sampleWidth * 4;
+    for (let x = 0; x < sampleWidth; x += 1) {
+      const i = rowOffset + x * 4;
+      const r = pixels[i];
+      const g = pixels[i + 1];
+      const b = pixels[i + 2];
+      const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const darkness = 255 - luminance;
+      if (darkness > 45) {
+        darknessByX[x] += darkness;
+      }
+    }
+  }
+
+  const centerStart = Math.floor(sampleWidth * 0.28);
+  const centerEnd = Math.floor(sampleWidth * 0.72);
+  let bestX = -1;
+  let bestValue = Number.POSITIVE_INFINITY;
+  let total = 0;
+  let count = 0;
+
+  for (let x = centerStart; x <= centerEnd; x += 1) {
+    const v = darknessByX[x];
+    total += v;
+    count += 1;
+    if (v < bestValue) {
+      bestValue = v;
+      bestX = x;
+    }
+  }
+
+  if (count === 0 || bestX < 0) {
+    return null;
+  }
+
+  const avg = total / count;
+  if (bestValue > avg * 0.72) {
+    return null;
+  }
+
+  return Math.round((bestX / sampleWidth) * img.width);
+}
+
+function buildRegionsForReadingMode(img, mode) {
+  const imgWidth = img.width;
+  const imgHeight = img.height;
+
+  if (mode === "single") {
+    return [{ x: 0, y: 0, width: imgWidth, height: imgHeight, label: "full page" }];
+  }
+
+  const detectedSplitX = detectColumnSplitX(img);
+  const splitX = detectedSplitX || Math.floor(imgWidth / 2);
+
+  if (mode === "auto" && !detectedSplitX) {
+    return [{ x: 0, y: 0, width: imgWidth, height: imgHeight, label: "full page" }];
+  }
+
+  const gutter = Math.max(8, Math.floor(imgWidth * 0.012));
+  const leftWidth = Math.max(20, splitX - gutter);
+  const rightX = Math.min(imgWidth - 20, splitX + gutter);
+  const rightWidth = Math.max(20, imgWidth - rightX);
+
+  return [
+    { x: 0, y: 0, width: leftWidth, height: imgHeight, label: "left column" },
+    { x: rightX, y: 0, width: rightWidth, height: imgHeight, label: "right column" }
+  ];
+}
+
+async function recognizeRegion(source, language, psm, regionLabel, progressStart, progressEnd) {
+  const span = progressEnd - progressStart;
+  return Tesseract.recognize(source, language, {
+    logger: (info) => {
+      if (typeof info.progress === "number") {
+        setProgress(progressStart + span * info.progress);
+      }
+
+      if (info.status) {
+        setStatus(`OCR ${regionLabel}: ${info.status}`);
+      }
+    },
+    tessedit_pageseg_mode: psm
+  });
+}
+
+async function transcribeWithLayoutMode(dataUrl, language, psm, readingMode) {
+  const image = await loadImageElement(dataUrl);
+  const regions = buildRegionsForReadingMode(image, readingMode);
+
+  if (regions.length === 1) {
+    const result = await recognizeRegion(dataUrl, language, psm, "full page", 0, 1);
+    return {
+      text: result?.data?.text?.trim() || "",
+      confidence: result?.data?.confidence,
+      regionCount: 1
+    };
+  }
+
+  let mergedText = "";
+  let confidenceSum = 0;
+  let confidenceCount = 0;
+
+  for (let i = 0; i < regions.length; i += 1) {
+    const region = regions[i];
+    const regionDataUrl = toCanvasDataUrlFromRegion(image, region);
+    const start = i / regions.length;
+    const end = (i + 1) / regions.length;
+
+    const partial = await recognizeRegion(regionDataUrl, language, psm, region.label, start, end);
+    const text = partial?.data?.text?.trim() || "";
+
+    if (text) {
+      mergedText += mergedText ? `\n\n${text}` : text;
+    }
+
+    const words = partial?.data?.words || [];
+    if (words.length) {
+      confidenceSum += words.reduce((sum, word) => sum + (word.confidence || 0), 0);
+      confidenceCount += words.length;
+    } else if (typeof partial?.data?.confidence === "number") {
+      confidenceSum += partial.data.confidence;
+      confidenceCount += 1;
+    }
+  }
+
+  return {
+    text: mergedText,
+    confidence: confidenceCount ? confidenceSum / confidenceCount : NaN,
+    regionCount: regions.length
+  };
+}
+
+async function addFiles(fileList) {
+  const files = Array.from(fileList || []);
+  const validFiles = files.filter((file) => file.type.startsWith("image/"));
+
+  if (!validFiles.length) {
+    setStatus("Please provide at least one valid image file.");
+    return;
+  }
+
+  try {
+    const dataUrls = await Promise.all(validFiles.map(readFileAsDataUrl));
+    for (const dataUrl of dataUrls) {
+      images.push(createImageRecord(dataUrl));
+      imageIdSeed += 1;
+    }
+
+    isCameraPreviewActive = false;
+    setCurrentImageByIndex(images.length - 1);
+
+    const skipped = files.length - validFiles.length;
+    const added = validFiles.length;
+    const imageWord = added === 1 ? "image" : "images";
+    const skippedText = skipped > 0
+      ? ` Skipped ${skipped} non-image ${skipped === 1 ? "file" : "files"}.`
+      : "";
+
+    setStatus(`Added ${added} ${imageWord}. Viewing ${currentImageIndex + 1}/${images.length}.${skippedText}`);
+  } catch {
+    setStatus("Failed to read one or more image files.");
+  }
+}
+
+function gotoPreviousImage() {
+  if (isTranscribing || images.length < 2) {
+    return;
+  }
+
+  isCameraPreviewActive = false;
+  const nextIndex = (currentImageIndex - 1 + images.length) % images.length;
+  setCurrentImageByIndex(nextIndex);
+  setStatus(`Viewing image ${currentImageIndex + 1}/${images.length}.`);
+}
+
+function gotoNextImage() {
+  if (isTranscribing || images.length < 2) {
+    return;
+  }
+
+  isCameraPreviewActive = false;
+  const nextIndex = (currentImageIndex + 1) % images.length;
+  setCurrentImageByIndex(nextIndex);
+  setStatus(`Viewing image ${currentImageIndex + 1}/${images.length}.`);
+}
+
+async function transcribeImageRecord(record, displayIndex, total) {
+  setProgress(0);
+  setStatus(`Running OCR on image ${displayIndex}/${total}...`);
+
+  const language = getSelectedLanguageCode();
+  const psm = Number(psmSelect.value);
+  const readingMode = readingOrderSelect.value;
+
+  const { text, confidence, regionCount } = await transcribeWithLayoutMode(
+    record.dataUrl,
+    language,
+    psm,
+    readingMode
+  );
+
+  record.rawOcrText = text || "No text found in the provided image.";
+  record.ocrText = formatDisplayText(record.rawOcrText);
+  record.confidence = confidence;
+  record.hasOcr = true;
+  record.regionCount = regionCount;
+
+  if (getCurrentImage()?.id === record.id) {
+    syncResultFromCurrentImage();
+  }
+
+  if (regionCount > 1) {
+    setStatus(`OCR complete for image ${displayIndex}/${total} (two-column mode).`);
+  } else {
+    setStatus(`OCR complete for image ${displayIndex}/${total}.`);
+  }
+}
+
+fileInput.addEventListener("change", async (event) => {
+  await addFiles(event.target.files);
+  fileInput.value = "";
+});
+
+dropZone.addEventListener("click", () => fileInput.click());
+dropZone.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    fileInput.click();
+  }
+});
+
+["dragenter", "dragover"].forEach((eventName) => {
+  dropZone.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dropZone.classList.add("active");
+  });
+});
+
+["dragleave", "drop"].forEach((eventName) => {
+  dropZone.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dropZone.classList.remove("active");
+  });
+});
+
+dropZone.addEventListener("drop", async (event) => {
+  await addFiles(event.dataTransfer.files);
+});
+
+languageDropdownBtn.addEventListener("click", () => {
+  if (languageDropdownMenu.hidden) {
+    openLanguageDropdown();
+  } else {
+    closeLanguageDropdown();
+  }
+});
+
+for (const checkbox of languageCheckboxes) {
+  checkbox.addEventListener("change", (event) => {
+    const checkedCount = languageCheckboxes.filter((item) => item.checked).length;
+
+    if (checkedCount === 0) {
+      event.target.checked = true;
+    }
+
+    updateLanguageDropdownLabel();
+  });
+}
+
+document.addEventListener("click", (event) => {
+  if (!languageMultiSelect.contains(event.target)) {
+    closeLanguageDropdown();
+  }
+});
+
+prevImageBtn.addEventListener("click", gotoPreviousImage);
+nextImageBtn.addEventListener("click", gotoNextImage);
+
+document.addEventListener("keydown", (event) => {
+  const targetTag = event.target?.tagName;
+  if (targetTag === "INPUT" || targetTag === "SELECT" || targetTag === "TEXTAREA") {
+    return;
+  }
+
+  if (event.key === "ArrowLeft") {
+    gotoPreviousImage();
+  } else if (event.key === "ArrowRight") {
+    gotoNextImage();
+  } else if (event.key === "Escape") {
+    closeLanguageDropdown();
+  }
+});
+
+startCameraBtn.addEventListener("click", async () => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setStatus("Camera access is not supported in this browser.");
+    return;
+  }
+
+  try {
+    activeStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      },
+      audio: false
+    });
+
+    cameraFeed.srcObject = activeStream;
+    isCameraPreviewActive = true;
+    refreshPreview();
+
+    captureBtn.disabled = false;
+    stopCameraBtn.disabled = false;
+    startCameraBtn.disabled = true;
+
+    if (images.length > 0) {
+      setStatus(`Camera running. ${images.length} saved image(s). Capture to add more.`);
+    } else {
+      setStatus("Camera running. Capture to add image(s).");
+    }
+  } catch {
+    setStatus("Could not start camera. Check browser permissions.");
+  }
+});
+
+captureBtn.addEventListener("click", () => {
+  if (!activeStream || !cameraFeed.videoWidth || !cameraFeed.videoHeight) {
+    setStatus("Camera frame is not ready yet.");
+    return;
+  }
+
+  captureCanvas.width = cameraFeed.videoWidth;
+  captureCanvas.height = cameraFeed.videoHeight;
+  const ctx = captureCanvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(cameraFeed, 0, 0, captureCanvas.width, captureCanvas.height);
+
+  const dataUrl = captureCanvas.toDataURL("image/png");
+  images.push(createImageRecord(dataUrl));
+  imageIdSeed += 1;
+  setCurrentImageByIndex(images.length - 1);
+
+  isCameraPreviewActive = true;
+  refreshPreview();
+  setStatus(`Captured image ${images.length}. Stop camera to review with arrows.`);
+});
+
+stopCameraBtn.addEventListener("click", () => {
+  if (activeStream) {
+    activeStream.getTracks().forEach((track) => track.stop());
+    activeStream = null;
+  }
+
+  cameraFeed.srcObject = null;
+  isCameraPreviewActive = false;
+
+  startCameraBtn.disabled = false;
+  captureBtn.disabled = true;
+  stopCameraBtn.disabled = true;
+
+  refreshPreview();
+
+  if (images.length > 0) {
+    setStatus(`Camera stopped. Viewing image ${currentImageIndex + 1}/${images.length}.`);
+  } else {
+    setStatus("Camera stopped. Provide image(s).");
+  }
+});
+
+transcribeBtn.addEventListener("click", async () => {
+  const current = getCurrentImage();
+  if (!current || isTranscribing) {
+    return;
+  }
+
+  if (!window.Tesseract) {
+    setStatus("OCR engine failed to load. Check your internet connection.");
+    return;
+  }
+
+  isTranscribing = true;
+  prevImageBtn.disabled = true;
+  nextImageBtn.disabled = true;
+  updateTranscribeState();
+
+  try {
+    await transcribeImageRecord(current, currentImageIndex + 1, images.length);
+  } catch {
+    setStatus("OCR failed. Try another image or language setting.");
+    setProgress(0);
+    setConfidence(NaN);
+  } finally {
+    isTranscribing = false;
+    prevImageBtn.disabled = false;
+    nextImageBtn.disabled = false;
+    updateTranscribeState();
+  }
+});
+
+transcribeAllBtn.addEventListener("click", async () => {
+  if (!images.length || isTranscribing) {
+    return;
+  }
+
+  if (!window.Tesseract) {
+    setStatus("OCR engine failed to load. Check your internet connection.");
+    return;
+  }
+
+  isTranscribing = true;
+  isCameraPreviewActive = false;
+  prevImageBtn.disabled = true;
+  nextImageBtn.disabled = true;
+  updateTranscribeState();
+  setProgress(0);
+
+  let completed = 0;
+  let failed = 0;
+  const total = images.length;
+
+  for (let i = 0; i < total; i += 1) {
+    setCurrentImageByIndex(i);
+    try {
+      await transcribeImageRecord(images[i], i + 1, total);
+      completed += 1;
+    } catch {
+      failed += 1;
+      setStatus(`OCR failed on image ${i + 1}/${total}. Continuing...`);
+    }
+  }
+
+  if (completed > 0 && getCurrentImage()) {
+    syncResultFromCurrentImage();
+  }
+
+  if (completed > 0) {
+    setProgress(1);
+  }
+
+  setStatus(
+    failed
+      ? `Transcribe all complete: ${completed}/${total} succeeded, ${failed} failed.`
+      : `Transcribe all complete: ${completed}/${total} succeeded.`
+  );
+
+  isTranscribing = false;
+  prevImageBtn.disabled = false;
+  nextImageBtn.disabled = false;
+  updateTranscribeState();
+});
+
+copyBtn.addEventListener("click", async () => {
+  if (!resultText.value.trim()) {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(resultText.value);
+    setStatus("Transcribed text copied to clipboard.");
+  } catch {
+    setStatus("Copy failed. Your browser may block clipboard access.");
+  }
+});
+
+downloadBtn.addEventListener("click", () => {
+  if (!resultText.value.trim()) {
+    return;
+  }
+
+  const blob = new Blob([resultText.value], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `transcription-${currentImageIndex + 1}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus("Downloaded transcription file.");
+});
+
+copyAllBtn.addEventListener("click", async () => {
+  const combinedText = getCombinedTranscriptionText();
+  if (!combinedText) {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(combinedText);
+    setStatus("Copied combined transcription for all images.");
+  } catch {
+    setStatus("Copy all failed. Your browser may block clipboard access.");
+  }
+});
+
+downloadAllBtn.addEventListener("click", () => {
+  const combinedText = getCombinedTranscriptionText();
+  if (!combinedText) {
+    return;
+  }
+
+  const blob = new Blob([combinedText], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "transcriptions-all.txt";
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus("Downloaded transcriptions-all.txt");
+});
+
+clearBtn.addEventListener("click", () => {
+  const current = getCurrentImage();
+  if (!current) {
+    setStatus("Waiting for image(s)...");
+    return;
+  }
+
+  current.rawOcrText = "";
+  current.ocrText = "";
+  current.confidence = NaN;
+  current.hasOcr = false;
+  current.regionCount = 0;
+
+  syncResultFromCurrentImage();
+  setStatus(`Cleared OCR text for image ${currentImageIndex + 1}/${images.length}.`);
+});
+
+cleanupTextToggle.addEventListener("change", () => {
+  const current = getCurrentImage();
+  if (!current || !current.hasOcr) {
+    return;
+  }
+
+  syncResultFromCurrentImage();
+  setStatus(
+    cleanupTextToggle.checked
+      ? "Text cleanup enabled for OCR output."
+      : "Text cleanup disabled for OCR output."
+  );
+});
+
+window.addEventListener("beforeunload", () => {
+  if (activeStream) {
+    activeStream.getTracks().forEach((track) => track.stop());
+  }
+});
+
+refreshPreview();
+updateLanguageDropdownLabel();
+setStatus("Waiting for image(s)...");
