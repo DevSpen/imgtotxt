@@ -950,9 +950,33 @@ async function transcribeImageRecord(record, displayIndex, total, progressBase =
   updateTaskProgress(1);
 }
 
+async function handleFileInputSelection(inputEl) {
+  const files = inputEl?.files;
+  const fileCount = files?.length || 0;
+
+  if (!fileCount) {
+    return;
+  }
+
+  setStatus(`Loading ${fileCount} selected ${fileCount === 1 ? "file" : "files"}...`);
+
+  try {
+    await addFiles(files);
+  } catch (error) {
+    console.error("File selection handling failed:", error);
+    setStatus("Could not process the selected file(s). Try another file.");
+  } finally {
+    inputEl.value = "";
+  }
+}
+
 fileInput.addEventListener("change", async (event) => {
-  await addFiles(event.target.files);
-  fileInput.value = "";
+  await handleFileInputSelection(event.target);
+});
+
+// Some mobile browsers dispatch `input` for file pickers more reliably than `change`.
+fileInput.addEventListener("input", async (event) => {
+  await handleFileInputSelection(event.target);
 });
 
 dropZone.addEventListener("click", () => fileInput.click());
