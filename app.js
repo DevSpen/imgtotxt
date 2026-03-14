@@ -174,6 +174,21 @@ function isPdfFile(file) {
   return type === "application/pdf" || name.endsWith(".pdf");
 }
 
+async function isLikelyPdfFile(file) {
+  if (isPdfFile(file)) {
+    return true;
+  }
+
+  try {
+    const headerBuffer = await file.slice(0, 5).arrayBuffer();
+    const headerBytes = new Uint8Array(headerBuffer);
+    const headerText = String.fromCharCode(...headerBytes);
+    return headerText === "%PDF-";
+  } catch {
+    return false;
+  }
+}
+
 function ensurePdfWorkerConfigured() {
   if (!window.pdfjsLib) {
     throw new Error("PDF engine unavailable");
@@ -810,7 +825,8 @@ async function addFiles(fileList) {
       continue;
     }
 
-    if (isPdfFile(file)) {
+    const looksLikePdf = await isLikelyPdfFile(file);
+    if (looksLikePdf) {
       try {
         const pages = await renderPdfFileToDataUrls(file);
         for (const page of pages) {
@@ -819,7 +835,8 @@ async function addFiles(fileList) {
           addedItems += 1;
         }
         messages.push(`${file.name || "PDF"} (${pages.length} pages)`);
-      } catch {
+      } catch (error) {
+        console.error("PDF load failed:", file?.name || "(unnamed PDF)", error);
         failedFiles += 1;
       }
       continue;
