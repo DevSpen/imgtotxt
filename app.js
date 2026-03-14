@@ -159,7 +159,13 @@ function getCurrentImage() {
 }
 
 function isImageFile(file) {
-  return (file.type || "").startsWith("image/");
+  const type = (file.type || "").toLowerCase();
+  if (type.startsWith("image/")) {
+    return true;
+  }
+
+  const name = (file.name || "").toLowerCase();
+  return /\.(png|jpe?g|webp|gif|bmp|tiff?|heic|heif|avif)$/i.test(name);
 }
 
 function isPdfFile(file) {
