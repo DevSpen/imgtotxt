@@ -265,6 +265,10 @@ select {
   margin: 6px 0 14px;
 }
 
+.text-options .checkbox-option + .checkbox-option {
+  margin-top: 8px;
+}
+
 .checkbox-option {
   display: flex;
   align-items: center;
@@ -318,6 +322,20 @@ button:disabled {
   color: var(--ink-soft);
 }
 
+.remove-image-btn {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 999px;
+  background: #bf4a2a;
+}
+
+.remove-image-btn:hover:not(:disabled) {
+  background: #9f3317;
+}
+
 .workspace {
   margin-top: 18px;
   display: grid;
@@ -331,11 +349,22 @@ button:disabled {
   animation: lift 620ms ease both;
 }
 
+.result-panel {
+  display: flex;
+  flex-direction: column;
+}
+
 .preview-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.preview-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 h2 {
@@ -454,6 +483,11 @@ textarea {
   font-size: 0.9rem;
 }
 
+.result-panel.has-source-image textarea {
+  min-height: 220px;
+  height: var(--auto-textarea-height, 320px);
+}
+
 @keyframes lift {
   from {
     opacity: 0;
@@ -532,6 +566,13 @@ textarea {
   .preview-nav {
     width: 48px;
     height: 48px;
+  }
+
+  .remove-image-btn {
+    width: 46px;
+    min-width: 46px;
+    height: 46px;
+    min-height: 46px;
   }
 
   textarea {

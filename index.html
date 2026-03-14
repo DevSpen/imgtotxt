@@ -29,8 +29,13 @@
 
       <section class="panel controls">
         <div class="control-row">
-          <label for="fileInput">Upload Images</label>
-          <input id="fileInput" type="file" accept="image/*" multiple />
+          <label for="fileInput">Upload Images / PDFs</label>
+          <input
+            id="fileInput"
+            type="file"
+            accept="image/*,.pdf,application/pdf"
+            multiple
+          />
         </div>
 
         <div
@@ -38,10 +43,10 @@
           class="drop-zone"
           role="button"
           tabindex="0"
-          aria-label="Drop an image here"
+          aria-label="Drop images or PDFs here"
         >
-          <p>Drag and drop image(s) here</p>
-          <span>PNG, JPG, WEBP, TIFF supported</span>
+          <p>Drag and drop image(s) or PDF(s) here</p>
+          <span>PNG, JPG, WEBP, TIFF, PDF supported</span>
         </div>
 
         <div class="control-row split-three">
@@ -57,16 +62,38 @@
               >
                 English
               </button>
-              <div id="languageDropdownMenu" class="language-dropdown-menu" hidden>
-                <label class="language-option"><input type="checkbox" value="eng" checked />English</label>
-                <label class="language-option"><input type="checkbox" value="ell" />Greek</label>
-                <label class="language-option"><input type="checkbox" value="spa" />Spanish</label>
-                <label class="language-option"><input type="checkbox" value="fra" />French</label>
-                <label class="language-option"><input type="checkbox" value="deu" />German</label>
-                <label class="language-option"><input type="checkbox" value="ita" />Italian</label>
-                <label class="language-option"><input type="checkbox" value="por" />Portuguese</label>
-                <label class="language-option"><input type="checkbox" value="nld" />Dutch</label>
-                <label class="language-option"><input type="checkbox" value="jpn" />Japanese</label>
+              <div
+                id="languageDropdownMenu"
+                class="language-dropdown-menu"
+                hidden
+              >
+                <label class="language-option"
+                  ><input type="checkbox" value="eng" checked />English</label
+                >
+                <label class="language-option"
+                  ><input type="checkbox" value="ell" />Greek</label
+                >
+                <label class="language-option"
+                  ><input type="checkbox" value="spa" />Spanish</label
+                >
+                <label class="language-option"
+                  ><input type="checkbox" value="fra" />French</label
+                >
+                <label class="language-option"
+                  ><input type="checkbox" value="deu" />German</label
+                >
+                <label class="language-option"
+                  ><input type="checkbox" value="ita" />Italian</label
+                >
+                <label class="language-option"
+                  ><input type="checkbox" value="por" />Portuguese</label
+                >
+                <label class="language-option"
+                  ><input type="checkbox" value="nld" />Dutch</label
+                >
+                <label class="language-option"
+                  ><input type="checkbox" value="jpn" />Japanese</label
+                >
               </div>
             </div>
             <p class="field-hint">Click and check one or more languages.</p>
@@ -99,6 +126,13 @@
               only paragraph newlines)</span
             >
           </label>
+          <label class="checkbox-option" for="pdfNativeTextToggle">
+            <input id="pdfNativeTextToggle" type="checkbox" checked />
+            <span
+              >Use embedded PDF text when available (faster than OCR, but
+              sometimes less accurate)</span
+            >
+          </label>
         </div>
 
         <div class="camera-controls">
@@ -112,7 +146,18 @@
         <article class="panel preview-panel">
           <div class="preview-head">
             <h2>Image Preview</h2>
-            <p id="imageCounter" class="image-counter" hidden>0 / 0</p>
+            <div class="preview-head-actions">
+              <p id="imageCounter" class="image-counter" hidden>0 / 0</p>
+              <button
+                id="removeImageBtn"
+                class="remove-image-btn"
+                type="button"
+                aria-label="Remove current image"
+                hidden
+              >
+                X
+              </button>
+            </div>
           </div>
           <div class="preview-wrap">
             <button
@@ -137,7 +182,7 @@
             <video id="cameraFeed" autoplay playsinline muted hidden></video>
             <canvas id="captureCanvas" hidden></canvas>
             <div id="previewPlaceholder" class="placeholder">
-              No image selected yet
+              No image or PDF page selected yet
             </div>
           </div>
         </article>
@@ -170,7 +215,9 @@
 
           <div class="result-actions">
             <button id="copyBtn" type="button" disabled>Copy</button>
-            <button id="copyAllBtn" type="button" disabled hidden>Copy All</button>
+            <button id="copyAllBtn" type="button" disabled hidden>
+              Copy All
+            </button>
             <button id="downloadBtn" type="button" disabled>
               Download .txt
             </button>
@@ -183,6 +230,7 @@
       </section>
     </main>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="app.js"></script>
   </body>
